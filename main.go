@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+    "errors"
 
 	"github.com/gorilla/mux"
 )
@@ -118,7 +119,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				defer file.Close()
 
-				fi, err := os.OpenFile("./test/"+f.Filename, os.O_WRONLY|os.O_CREATE, 0666)
+				fi, err := os.OpenFile("./uploads/"+f.Filename, os.O_WRONLY|os.O_CREATE, 0666)
 				if err != nil {
 					fmt.Println(err)
 					return
@@ -126,9 +127,9 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 
 				defer fi.Close()
 				io.Copy(fi, file)
-				log.Println("file uploaded: ", f.Filename)
+				log.Println("File uploaded: ", f.Filename)
 
-				thefilename = "/test/" + f.Filename
+				thefilename = "/uploads/" + f.Filename
 
 				data := []byte("DONE")
 				w.Write(data)
@@ -141,14 +142,58 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	r := mux.NewRouter()
-	fs := http.FileServer(http.Dir("./test/"))
-	r.PathPrefix("/test/").Handler(http.StripPrefix("/test/", fs))
+	fs := http.FileServer(http.Dir("./uploads/"))
+	r.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", fs))
 
 	r.HandleFunc("/", indexHandler).Methods("GET")
 	r.HandleFunc("/", uploadHandler)
 
 	LoadTemplates("templates/*.html")
 	http.Handle("/", r)
-	log.Println("Serving at localhost:8080...")
+
+	ip, err := externalIP()
+	if err != nil {
+		fmt.Println(err)
+	}
+
+    log.Printf("Serving at %s:8080...", ip)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
+
+func externalIP() (string, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "", err
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue // interface down
+		}
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue // loopback interface
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			return "", err
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			ip = ip.To4()
+			if ip == nil {
+				continue // not an ipv4 address
+			}
+			return ip.String(), nil
+		}
+	}
+	return "", errors.New("are you connected to the network?")
+}
+
