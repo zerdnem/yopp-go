@@ -1,3 +1,4 @@
+//copy pasted code
 package main
 
 import (
